@@ -80,7 +80,7 @@ class Colors {
 	 */
 	static public function color($color) {
 		if (!is_array($color)) {
-			$color = compact('color');
+			$color = array('color' => $color);
 		}
 
 		$color += array('color' => null, 'style' => null, 'background' => null);
@@ -101,7 +101,7 @@ class Colors {
 			$colors[] = 0;
 		}
 
-		return "\033[" . join(';', $colors) . "m";
+		return "\033[" . implode(';', $colors) . "m";
 	}
 
 	/**
@@ -133,9 +133,48 @@ class Colors {
 		}
 
 		$string = str_replace('%¾', '%', $string);
+
+		$string = self::colorizeTags($string);
 		self::cacheString($passed, $string);
 
 		return $string;
+	}
+
+	/**
+	 * @param string  $string
+	 *
+	 * @return string
+	 */
+	static protected function colorizeTags ($string) {
+		$colors = self::getColors();
+		$colors_keys = str_replace(
+			'%',
+			'',
+			implode('', array_keys($colors))
+		);
+		$stack = array();
+		return preg_replace_callback(
+			"#<(/?)([$colors_keys])>#",
+			function ($match) use (&$stack, $colors) {
+				$current_colors_list = array_pop($stack) ?: array();
+				if ($match[1]) {
+					// Use previous colors
+					$colors_list = $stack[count($stack) - 1];
+					if (!$colors_list) {
+						$colors_list = $colors['%n'];
+					}
+				} else {
+					// Mix current colors with new color
+					$stack[]       = $current_colors_list;
+					$colors_list   = $current_colors_list;
+					$colors_list[] = $colors["%$match[2]"];
+					$stack[]       = $colors_list;
+				}
+				// PHP 5.3 doesn't allow `self::color` here:(
+				return implode('', array_map(array(__CLASS__, 'color'), $colors_list));
+			},
+			$string
+		);
 	}
 
 	/**
@@ -146,10 +185,20 @@ class Colors {
 	 * @return string A string with color information removed.
 	 */
 	static public function decolorize( $string, $keep = 0 ) {
+		$colors_prepared = array_map('self::color', self::getColors());
+		$colors_keys = str_replace(
+			'%',
+			'',
+			implode('', array_keys($colors_prepared))
+		);
 		if ( ! ( $keep & 1 ) ) {
 			// Get rid of color tokens if they exist
 			$string = str_replace('%%', '%¾', $string);
-			$string = str_replace(array_keys(self::getColors()), '', $string);
+			$string = preg_replace(
+				"#</?[$colors_keys]>|%[$colors_keys]#",
+				'',
+				$string
+			);
 			$string = str_replace('%¾', '%', $string);
 		}
 
